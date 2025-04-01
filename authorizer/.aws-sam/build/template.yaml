@@ -1,0 +1,30 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'api key aplication managment
+
+  '
+Globals:
+  Function:
+    Timeout: 5
+    MemorySize: 128
+    LoggingConfig:
+      LogFormat: JSON
+Resources:
+  LambdaAuthorizer:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: go1.x
+      SamResourceId: LambdaAuthorizer
+    Properties:
+      CodeUri: LambdaAuthorizer
+      Handler: bootstrap
+      Runtime: provided.al2023
+      Architectures:
+      - x86_64
+      Policies:
+      - AWSLambdaBasicExecutionRole
+      Environment:
+        Variables:
+          USER_VAR_DB_MONGO_URI: mongodb://admin:password@mongodb:27017/?authSource=admin
+          USER_VAR_LOG_CHAN: Stdout
+          USER_VAR_LOG_LEVEL: INFO

@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  api key aplication managment
+
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 5
+    MemorySize: 128
+
+    # You can add LoggingConfig parameters such as the Logformat, Log Group, and SystemLogLevel or ApplicationLogLevel. Learn more here https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html#sam-function-loggingconfig.
+    LoggingConfig:
+      LogFormat: JSON
+
+Resources:
+  LambdaAuthorizer:
+    Type: AWS::Serverless::Function
+    Metadata:
+        BuildMethod: go1.x
+    Properties:
+      CodeUri: app/cmd
+      Handler: bootstrap
+      Runtime: provided.al2023
+      Architectures:
+      - x86_64
+      Policies:
+        - AWSLambdaBasicExecutionRole
+      Environment:
+        Variables:
+          USER_VAR_DB_MONGO_URI: mongodb://admin:password@mongodb:27017/?authSource=admin
+          USER_VAR_LOG_CHAN: Stdout
+          USER_VAR_LOG_LEVEL: INFO      
+          
+
+
+
+ 

@@ -1,0 +1,5 @@
+{
+    "type": "TOKEN",
+    "authorizationToken": "APP-CLAROSCORE-8513068e-8933-4a83-9027-4324c88a4a3b",
+    "methodArn": "arn:aws:execute-api:us-east-1:123456789012:example/prod/GET/resource"
+}
