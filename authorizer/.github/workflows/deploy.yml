@@ -1,0 +1,104 @@
+name: AWS CDK Deployment
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Entorno de despliegue'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - development
+          - production
+
+jobs:
+  determine-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+    steps:
+      - id: set-env
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "pull_request" ] && [ "${{ github.event.pull_request.merged }}" == "true" ] && [ "${{ github.base_ref }}" == "main" ]; then
+            # Despliegue a producción cuando se fusiona un PR a main
+            echo "environment=production" >> $GITHUB_OUTPUT
+          else
+            # Despliegue a desarrollo para cualquier otro caso
+            echo "environment=development" >> $GITHUB_OUTPUT
+          fi
+
+  test:
+    runs-on: ubuntu-latest
+    needs: determine-environment
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+          
+      - name: Install dependencies
+        run: go mod download
+        
+      - name: Run tests
+        run: go test -v ./...
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [determine-environment, test]
+    if: github.event_name != 'pull_request' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    # Asignar el entorno detectado a este trabajo
+    environment: ${{ needs.determine-environment.outputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      
+      # Configurar credenciales AWS con OIDC usando variables del entorno actual
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      
+      # Ejecutar deploy.go con todas las variables de entorno necesarias
+      - name: Run deploy.go script
+        env:
+          USER_VAR_LOG_CHAN: ${{ vars.LOG_CHAN }}
+          USER_VAR_LOG_LEVEL: ${{ vars.LOG_LEVEL }}
+          USER_VAR_DB_MONGO_URI: ${{ secrets.MONGODB_CONNECTION_STRING }}
+          USER_VAR_VPC_ID: ${{ vars.VPC_ID }}
+          USER_VAR_SUBNET_IDS: ${{ vars.SUBNET_IDS }}
+          USER_VAR_SECURITY_GROUP_IDS: ${{ vars.SECURITY_GROUP_IDS }}
+          USER_VAR_AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          USER_VAR_AWS_REGION: ${{ vars.AWS_REGION }}
+        run: go run deploy.go
+      
+      # Construir la aplicación para Lambda
+      - name: Build Lambda Function
+        run: |
+          mkdir -p .aws-sam/build/LambdaAuthorizer
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o .aws-sam/build/LambdaAuthorizer/bootstrap ./cmd/main.go
