@@ -98,7 +98,7 @@ jobs:
           echo "SECURITY_GROUP_IDS: ${{ vars.SECURITY_GROUP_IDS }}"
           echo "LOG_CHAN: ${{ vars.LOG_CHAN }}"
           echo "LOG_LEVEL: ${{ vars.LOG_LEVEL }}"
-          echo "MONGODB_CONNECTION_STRING is set: ${{ secrets.USER_VAR_DB_MONGO_URI}}"
+          echo "USER_VAR_DB_MONGO_URI is set: ${{ secrets.USER_VAR_DB_MONGO_URI}}"
       
       # Configurar credenciales AWS con OIDC usando variables del entorno actual
       - name: Configure AWS credentials
@@ -119,12 +119,12 @@ jobs:
           echo "USER_VAR_AWS_ACCOUNT_ID is set to: $USER_VAR_AWS_ACCOUNT_ID"
           echo "USER_VAR_AWS_REGION is set to: $USER_VAR_AWS_REGION"
           echo "USER_VAR_DB_MONGO_URI is set: ${{ env.USER_VAR_DB_MONGO_URI != '' }}"
-          echo "MONGODB_CONNECTION_STRING length: ${#MONGODB_CONNECTION}"
-          echo "MONGODB_CONNECTION_STRING prefix: ${MONGODB_CONNECTION:0:10}... (truncado por seguridad)"
+          echo "USER_VAR_DB_MONGO_URI length: ${#USER_VAR_DB_MONGO_URI}"
+          echo "USER_VAR_DB_MONGO_URI prefix: ${USER_VAR_DB_MONGO_URI:0:10}... (truncado por seguridad)"
         env:
           USER_VAR_LOG_CHAN: ${{ vars.LOG_CHAN }}
           USER_VAR_LOG_LEVEL: ${{ vars.LOG_LEVEL }}
-          USER_VAR_DB_MONGO_URI: ${{ secrets.MONGODB_CONNECTION_STRING }}
+          USER_VAR_DB_MONGO_URI: ${{ secrets.USER_VAR_DB_MONGO_URI }}
           USER_VAR_VPC_ID: ${{ vars.VPC_ID }}
           USER_VAR_SUBNET_IDS: ${{ vars.SUBNET_IDS }}
           USER_VAR_SECURITY_GROUP_IDS: ${{ vars.SECURITY_GROUP_IDS }}
@@ -137,7 +137,7 @@ jobs:
         env:
           USER_VAR_LOG_CHAN: ${{ vars.LOG_CHAN }}
           USER_VAR_LOG_LEVEL: ${{ vars.LOG_LEVEL }}
-          USER_VAR_DB_MONGO_URI: ${{ secrets.MONGODB_CONNECTION_STRING }}
+          USER_VAR_DB_MONGO_URI: ${{ secrets.USER_VAR_DB_MONGO_URI }}
           USER_VAR_VPC_ID: ${{ vars.VPC_ID }}
           USER_VAR_SUBNET_IDS: ${{ vars.SUBNET_IDS }}
           USER_VAR_SECURITY_GROUP_IDS: ${{ vars.SECURITY_GROUP_IDS }}
