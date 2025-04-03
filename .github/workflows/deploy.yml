@@ -144,9 +144,7 @@ jobs:
           USER_VAR_AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
           USER_VAR_AWS_REGION: ${{ vars.AWS_REGION }}
         # Ajustar la ruta dependiendo de donde esté deploy.go ahora
-        run: |
-          cd authorizer  # Si deploy.go está dentro de la carpeta authorizer
-          go run deploy.go
+        run: go run deploy.go
       
       # Construir la aplicación para Lambda
       - name: Build Lambda Function
