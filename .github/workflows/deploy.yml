@@ -7,7 +7,7 @@ on:
   pull_request:
     types: [closed]
     branches:
-      - main 
+      - main
   workflow_dispatch:
     inputs:
       environment:
@@ -77,12 +77,60 @@ jobs:
         with:
           node-version: '18'
       
+      # Paso de depuración para ver el contexto de GitHub
+      - name: Print GitHub context
+        run: echo '${{ toJSON(github) }}'
+      
+      # Paso de depuración para variables de entorno de GitHub
+      - name: Debug environment variables
+        run: |
+          echo "=== Debugging Environment Variables ==="
+          echo "GITHUB_REF: $GITHUB_REF"
+          echo "GITHUB_HEAD_REF: $GITHUB_HEAD_REF"
+          echo "GITHUB_BASE_REF: $GITHUB_BASE_REF"
+          echo "Event name: ${{ github.event_name }}"
+          echo "Environment: ${{ needs.determine-environment.outputs.environment }}"
+          echo "AWS_REGION: ${{ vars.AWS_REGION }}"
+          echo "AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}"
+          echo "AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}"
+          echo "VPC_ID: ${{ vars.VPC_ID }}"
+          echo "SUBNET_IDS: ${{ vars.SUBNET_IDS }}"
+          echo "SECURITY_GROUP_IDS: ${{ vars.SECURITY_GROUP_IDS }}"
+          echo "LOG_CHAN: ${{ vars.LOG_CHAN }}"
+          echo "LOG_LEVEL: ${{ vars.LOG_LEVEL }}"
+          echo "MONGODB_CONNECTION_STRING is set: ${{ secrets.MONGODB_CONNECTION_STRING != '' }}"
+      
       # Configurar credenciales AWS con OIDC usando variables del entorno actual
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+      
+      # Paso de depuración para variables USER_VAR
+      - name: Debug USER_VAR variables
+        run: |
+          echo "=== Debugging USER_VAR Environment Variables ==="
+          echo "USER_VAR_LOG_CHAN is set to: $USER_VAR_LOG_CHAN"
+          echo "USER_VAR_LOG_LEVEL is set to: $USER_VAR_LOG_LEVEL"
+          echo "USER_VAR_VPC_ID is set to: $USER_VAR_VPC_ID"
+          echo "USER_VAR_SUBNET_IDS is set to: $USER_VAR_SUBNET_IDS"
+          echo "USER_VAR_SECURITY_GROUP_IDS is set to: $USER_VAR_SECURITY_GROUP_IDS"
+          echo "USER_VAR_AWS_ACCOUNT_ID is set to: $USER_VAR_AWS_ACCOUNT_ID"
+          echo "USER_VAR_AWS_REGION is set to: $USER_VAR_AWS_REGION"
+          echo "USER_VAR_DB_MONGO_URI is set: ${{ env.USER_VAR_DB_MONGO_URI != '' }}"
+          echo "MONGODB_CONNECTION_STRING length: ${#MONGODB_CONNECTION}"
+          echo "MONGODB_CONNECTION_STRING prefix: ${MONGODB_CONNECTION:0:10}... (truncado por seguridad)"
+        env:
+          USER_VAR_LOG_CHAN: ${{ vars.LOG_CHAN }}
+          USER_VAR_LOG_LEVEL: ${{ vars.LOG_LEVEL }}
+          USER_VAR_DB_MONGO_URI: ${{ secrets.MONGODB_CONNECTION_STRING }}
+          USER_VAR_VPC_ID: ${{ vars.VPC_ID }}
+          USER_VAR_SUBNET_IDS: ${{ vars.SUBNET_IDS }}
+          USER_VAR_SECURITY_GROUP_IDS: ${{ vars.SECURITY_GROUP_IDS }}
+          USER_VAR_AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          USER_VAR_AWS_REGION: ${{ vars.AWS_REGION }}
+          MONGODB_CONNECTION: ${{ secrets.MONGODB_CONNECTION_STRING }}
       
       # Ejecutar deploy.go con todas las variables de entorno necesarias
       - name: Run deploy.go script
@@ -95,10 +143,14 @@ jobs:
           USER_VAR_SECURITY_GROUP_IDS: ${{ vars.SECURITY_GROUP_IDS }}
           USER_VAR_AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
           USER_VAR_AWS_REGION: ${{ vars.AWS_REGION }}
-        run: go run deploy.go
+        # Ajustar la ruta dependiendo de donde esté deploy.go ahora
+        run: |
+          cd authorizer  # Si deploy.go está dentro de la carpeta authorizer
+          go run deploy.go
       
       # Construir la aplicación para Lambda
       - name: Build Lambda Function
         run: |
-          mkdir -p .aws-sam/build/LambdaAuthorizer
+          mkdir -p authorizer/.aws-sam/build/LambdaAuthorizer
+          cd authorizer
           GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o .aws-sam/build/LambdaAuthorizer/bootstrap ./cmd/main.go
