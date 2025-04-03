@@ -149,6 +149,5 @@ jobs:
       # Construir la aplicación para Lambda
       - name: Build Lambda Function
         run: |
-          mkdir -p authorizer/.aws-sam/build/LambdaAuthorizer
-          cd authorizer
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o .aws-sam/build/LambdaAuthorizer/bootstrap ./cmd/main.go
+            mkdir -p .aws-sam/build/LambdaAuthorizer
+            GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o .aws-sam/build/LambdaAuthorizer/bootstrap ./authorizer/app/cmd/main.go
