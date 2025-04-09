@@ -1,4 +1,3 @@
-
 name: AWS CDK Deployment
 
 on:
@@ -76,34 +75,11 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: '20'
       
       # Instalar AWS CDK CLI
       - name: Install AWS CDK
         run: npm install -g aws-cdk
-      
-      # Paso de depuración para ver el contexto de GitHub
-      - name: Print GitHub context
-        run: echo '${{ toJSON(github) }}'
-      
-      # Paso de depuración para variables de entorno de GitHub
-      - name: Debug environment variables
-        run: |
-          echo "=== Debugging Environment Variables ==="
-          echo "GITHUB_REF: $GITHUB_REF"
-          echo "GITHUB_HEAD_REF: $GITHUB_HEAD_REF"
-          echo "GITHUB_BASE_REF: $GITHUB_BASE_REF"
-          echo "Event name: ${{ github.event_name }}"
-          echo "Environment: ${{ needs.determine-environment.outputs.environment }}"
-          echo "AWS_REGION: ${{ vars.AWS_REGION }}"
-          echo "AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}"
-          echo "AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}"
-          echo "VPC_ID: ${{ vars.VPC_ID }}"
-          echo "SUBNET_IDS: ${{ vars.SUBNET_IDS }}"
-          echo "SECURITY_GROUP_IDS: ${{ vars.SECURITY_GROUP_IDS }}"
-          echo "LOG_CHAN: ${{ vars.LOG_CHAN }}"
-          echo "LOG_LEVEL: ${{ vars.LOG_LEVEL }}"
-          echo "USER_VAR_DB_MONGO_URI is set: ${{ secrets.USER_VAR_DB_MONGO_URI != '' }}"
       
       # Configurar credenciales AWS con OIDC usando variables del entorno actual
       - name: Configure AWS credentials
@@ -112,30 +88,11 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
       
-      # Paso de depuración para variables USER_VAR
-      - name: Debug USER_VAR variables
+      # Bootstrap CDK (si es necesario)
+      - name: Bootstrap CDK
         run: |
-          echo "=== Debugging USER_VAR Environment Variables ==="
-          echo "USER_VAR_LOG_CHAN is set to: $USER_VAR_LOG_CHAN"
-          echo "USER_VAR_LOG_LEVEL is set to: $USER_VAR_LOG_LEVEL"
-          echo "USER_VAR_VPC_ID is set to: $USER_VAR_VPC_ID"
-          echo "USER_VAR_SUBNET_IDS is set to: $USER_VAR_SUBNET_IDS"
-          echo "USER_VAR_SECURITY_GROUP_IDS is set to: $USER_VAR_SECURITY_GROUP_IDS"
-          echo "USER_VAR_AWS_ACCOUNT_ID is set to: $USER_VAR_AWS_ACCOUNT_ID"
-          echo "USER_VAR_AWS_REGION is set to: $USER_VAR_AWS_REGION"
-          echo "USER_VAR_DB_MONGO_URI is set: ${{ env.USER_VAR_DB_MONGO_URI != '' }}"
-          echo "USER_VAR_DB_MONGO_URI length: ${#USER_VAR_DB_MONGO_URI}"
-          echo "USER_VAR_DB_MONGO_URI prefix: ${USER_VAR_DB_MONGO_URI:0:10}... (truncado por seguridad)"
-        env:
-          USER_VAR_LOG_CHAN: ${{ vars.LOG_CHAN }}
-          USER_VAR_LOG_LEVEL: ${{ vars.LOG_LEVEL }}
-          USER_VAR_DB_MONGO_URI: ${{ secrets.USER_VAR_DB_MONGO_URI }}
-          USER_VAR_VPC_ID: ${{ vars.VPC_ID }}
-          USER_VAR_SUBNET_IDS: ${{ vars.SUBNET_IDS }}
-          USER_VAR_SECURITY_GROUP_IDS: ${{ vars.SECURITY_GROUP_IDS }}
-          USER_VAR_AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          USER_VAR_AWS_REGION: ${{ vars.AWS_REGION }}
-          MONGODB_CONNECTION: ${{ secrets.USER_VAR_DB_MONGO_URI }}
+          echo "Bootstrapping CDK environment..."
+          cdk bootstrap aws://${{ vars.AWS_ACCOUNT_ID }}/${{ vars.AWS_REGION }} --force
       
       # Ejecutar deploy.go con todas las variables de entorno necesarias
       - name: Run deploy.go script
@@ -148,7 +105,7 @@ jobs:
           USER_VAR_SECURITY_GROUP_IDS: ${{ vars.SECURITY_GROUP_IDS }}
           USER_VAR_AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
           USER_VAR_AWS_REGION: ${{ vars.AWS_REGION }}
-        # Ajustar la ruta dependiendo de donde esté deploy.go ahora
+          JSII_SILENCE_WARNING_DEPRECATED_NODE_VERSION: "true"
         run: go run deploy.go
       
       # Construir la aplicación para Lambda
@@ -165,18 +122,8 @@ jobs:
             
             # Compilar la aplicación
             GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o ../../.aws-sam/build/LambdaAuthorizer/bootstrap ./cmd/main.go
-            
-      # NUEVO: Instalar dependencias de CDK (si las hay)
-      - name: Install CDK dependencies
-        run: |
-          # Si tienes un package.json en la raíz o en un directorio específico de CDK
-          if [ -f "package.json" ]; then
-            npm install
-          elif [ -f "cdk/package.json" ]; then
-            cd cdk && npm install
-          fi
       
-      # NUEVO: Sintetizar la aplicación CDK
+      # Sintetizar la aplicación CDK
       - name: CDK Synth
         env:
           USER_VAR_LOG_CHAN: ${{ vars.LOG_CHAN }}
@@ -187,14 +134,10 @@ jobs:
           USER_VAR_SECURITY_GROUP_IDS: ${{ vars.SECURITY_GROUP_IDS }}
           USER_VAR_AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
           USER_VAR_AWS_REGION: ${{ vars.AWS_REGION }}
-        run: |
-          # Ajusta la ruta según donde se encuentre tu código CDK
-          # Si el CDK está en la raíz:
-          cdk synth
-          # Si está en un subdirectorio específico:
-          # cd cdk && cdk synth
+          JSII_SILENCE_WARNING_DEPRECATED_NODE_VERSION: "true"
+        run: cdk synth
       
-      # NUEVO: Desplegar la aplicación CDK
+      # Desplegar la aplicación CDK
       - name: CDK Deploy
         env:
           USER_VAR_LOG_CHAN: ${{ vars.LOG_CHAN }}
@@ -205,8 +148,5 @@ jobs:
           USER_VAR_SECURITY_GROUP_IDS: ${{ vars.SECURITY_GROUP_IDS }}
           USER_VAR_AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
           USER_VAR_AWS_REGION: ${{ vars.AWS_REGION }}
-        run: |
-          # Despliegue sin aprobación interactiva
-          cdk deploy --require-approval never --all
-          # Si quieres desplegar un stack específico:
-          # cdk deploy YourStackName --require-approval never
+          JSII_SILENCE_WARNING_DEPRECATED_NODE_VERSION: "true"
+        run: cdk deploy --require-approval never --all
