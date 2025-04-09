@@ -81,24 +81,6 @@ jobs:
       - name: Install AWS CDK
         run: npm install -g aws-cdk
       
-      # Paso de depuración para variables de entorno de GitHub
-      - name: Debug environment variables
-        run: |
-          echo "=== Debugging Environment Variables ==="
-          echo "GITHUB_REF: $GITHUB_REF"
-          echo "GITHUB_HEAD_REF: $GITHUB_HEAD_REF"
-          echo "GITHUB_BASE_REF: $GITHUB_BASE_REF"
-          echo "Event name: ${{ github.event_name }}"
-          echo "Environment: ${{ needs.determine-environment.outputs.environment }}"
-          echo "AWS_REGION: ${{ vars.AWS_REGION }}"
-          echo "AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}"
-          echo "AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}"
-          echo "VPC_ID: ${{ vars.VPC_ID }}"
-          echo "SUBNET_IDS: ${{ vars.SUBNET_IDS }}"
-          echo "SECURITY_GROUP_IDS: ${{ vars.SECURITY_GROUP_IDS }}"
-          echo "LOG_CHAN: ${{ vars.LOG_CHAN }}"
-          echo "LOG_LEVEL: ${{ vars.LOG_LEVEL }}"
-      
       # Configurar credenciales AWS con OIDC usando variables del entorno actual
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -106,8 +88,9 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
       
-      # Definir variables de entorno para todo el job
-      - name: Set environment variables
+      # Definir variables de entorno usando GITHUB_ENV 
+      # Esto las hace disponibles para todos los pasos subsiguientes
+      - name: Set common environment variables
         run: |
           echo "USER_VAR_LOG_CHAN=${{ vars.LOG_CHAN }}" >> $GITHUB_ENV
           echo "USER_VAR_LOG_LEVEL=${{ vars.LOG_LEVEL }}" >> $GITHUB_ENV
@@ -118,13 +101,43 @@ jobs:
           echo "USER_VAR_AWS_REGION=${{ vars.AWS_REGION }}" >> $GITHUB_ENV
           echo "JSII_SILENCE_WARNING_DEPRECATED_NODE_VERSION=true" >> $GITHUB_ENV
       
-      # Bootstrap CDK (si es necesario)
-      - name: Bootstrap CDK
+      # Paso de depuración para variables de entorno de GitHub
+      - name: Debug environment variables
         run: |
+          echo "=== Debugging Environment Variables ==="
+          echo "GITHUB_REF: $GITHUB_REF"
+          echo "GITHUB_HEAD_REF: $GITHUB_HEAD_REF"
+          echo "GITHUB_BASE_REF: $GITHUB_BASE_REF"
+          echo "Event name: ${{ github.event_name }}"
+          echo "Environment: ${{ needs.determine-environment.outputs.environment }}"
+          echo "AWS_REGION: ${{ vars.AWS_REGION }}"
+          echo "AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}"
+          echo "USER_VAR_DB_MONGO_URI is set: ${{ secrets.USER_VAR_DB_MONGO_URI != '' }}"
+          echo "USER_VAR_LOG_CHAN: $USER_VAR_LOG_CHAN"
+          echo "USER_VAR_LOG_LEVEL: $USER_VAR_LOG_LEVEL"
+          echo "USER_VAR_VPC_ID: $USER_VAR_VPC_ID"
+          echo "USER_VAR_SUBNET_IDS: $USER_VAR_SUBNET_IDS" 
+          echo "USER_VAR_SECURITY_GROUP_IDS: $USER_VAR_SECURITY_GROUP_IDS"
+          echo "USER_VAR_AWS_ACCOUNT_ID: $USER_VAR_AWS_ACCOUNT_ID"
+          echo "USER_VAR_AWS_REGION: $USER_VAR_AWS_REGION"
+      
+      # Crear un archivo temporal para el bootstrap
+      - name: Create bootstrap script
+        run: |
+          cat > bootstrap.sh << 'EOF'
+          #!/bin/bash
           echo "Bootstrapping CDK environment..."
           echo "Account ID: $USER_VAR_AWS_ACCOUNT_ID"
           echo "Region: $USER_VAR_AWS_REGION"
           cdk bootstrap "aws://${USER_VAR_AWS_ACCOUNT_ID}/${USER_VAR_AWS_REGION}" --force
+          EOF
+          chmod +x bootstrap.sh
+      
+      # Bootstrap CDK con la variable MongoDB explícitamente definida
+      - name: Bootstrap CDK
+        env:
+          USER_VAR_DB_MONGO_URI: ${{ secrets.USER_VAR_DB_MONGO_URI }}
+        run: ./bootstrap.sh
       
       # Ejecutar deploy.go con todas las variables de entorno necesarias
       - name: Run deploy.go script
@@ -134,6 +147,8 @@ jobs:
       
       # Construir la aplicación para Lambda
       - name: Build Lambda Function
+        env:
+          USER_VAR_DB_MONGO_URI: ${{ secrets.USER_VAR_DB_MONGO_URI }}
         run: |
             # Navegar al directorio del módulo que contiene el código
             cd authorizer/app
