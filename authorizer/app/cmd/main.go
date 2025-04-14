@@ -27,6 +27,8 @@ func init() {
 // HandleRequest es la función Lambda que se ejecuta para autorizar solicitudes
 func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorizerRequestTypeRequest) (events.APIGatewayCustomAuthorizerResponse, error) {
 	// Extrae el API key del header
+	log.Printf("inicia el autorizador")
+	log.Printf(request.Headers["x-api-key"])
 	apiKey := request.Headers["x-api-key"]
 	if apiKey == "" {
 		return generatePolicy("user", "Deny", request.MethodArn, map[string]interface{}{
