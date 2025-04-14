@@ -1,6 +1,6 @@
 package resp
 
-import (
+/*import (
 	"apikey/internal/model"
 	"net/http"
 	"time"
@@ -23,4 +23,4 @@ func NewTemplateResponse(data interface{}) TemplateResponse {
 		},
 		Data: data,
 	}
-}
+}*/

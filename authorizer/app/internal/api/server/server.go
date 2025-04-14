@@ -1,6 +1,6 @@
 package server
 
-import (
+/*import (
 	"apikey/internal/api/handler"
 )
 
@@ -24,4 +24,4 @@ func New(options ...Option) *Server {
 	}
 
 	return s
-}
+}*/

@@ -1,6 +1,6 @@
 package server
 
-import (
+/*import (
 	"context"
 	"fmt"
 	"strings"
@@ -48,4 +48,4 @@ func (s *Server) Route() func(ctx context.Context, request events.APIGatewayCust
 		return route.Handler(ctx, request)
 
 	}
-}
+}*/

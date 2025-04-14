@@ -1,6 +1,6 @@
 package resp
 
-import (
+/*import (
 	"apikey/internal/errormap"
 	"apikey/pkg/errorx"
 	"encoding/json"
@@ -21,4 +21,4 @@ func DecodePath(str string) (int64, error) {
 		return 0, errorx.WrapErrorf(err, errormap.CodeInvalidArgument, "invalid path")
 	}
 	return id, nil
-}
+}*/

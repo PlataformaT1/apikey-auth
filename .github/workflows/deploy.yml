@@ -99,6 +99,7 @@ jobs:
           echo "USER_VAR_SECURITY_GROUP_IDS=${{ vars.SECURITY_GROUP_IDS }}" >> $GITHUB_ENV
           echo "USER_VAR_AWS_ACCOUNT_ID=${{ vars.AWS_ACCOUNT_ID }}" >> $GITHUB_ENV
           echo "USER_VAR_AWS_REGION=${{ vars.AWS_REGION }}" >> $GITHUB_ENV
+          echo "USER_VAR_REDIS_HOST=${{ secrets.USER_VAR_REDIS_HOST }}" >> $GITHUB_ENV
           echo "JSII_SILENCE_WARNING_DEPRECATED_NODE_VERSION=true" >> $GITHUB_ENV
       
       # Paso de depuración para variables de entorno de GitHub
@@ -113,6 +114,7 @@ jobs:
           echo "AWS_REGION: ${{ vars.AWS_REGION }}"
           echo "AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}"
           echo "USER_VAR_DB_MONGO_URI is set: ${{ secrets.USER_VAR_DB_MONGO_URI != '' }}"
+          echo "USER_VAR_REDIS_HOST is set: ${{ secrets.USER_VAR_REDIS_HOST != '' }}"
           echo "USER_VAR_LOG_CHAN: $USER_VAR_LOG_CHAN"
           echo "USER_VAR_LOG_LEVEL: $USER_VAR_LOG_LEVEL"
           echo "USER_VAR_VPC_ID: $USER_VAR_VPC_ID"
@@ -133,22 +135,25 @@ jobs:
           EOF
           chmod +x bootstrap.sh
       
-      # Bootstrap CDK con la variable MongoDB explícitamente definida
+      # Bootstrap CDK con la variable MongoDB y Redis explícitamente definidas
       - name: Bootstrap CDK
         env:
           USER_VAR_DB_MONGO_URI: ${{ secrets.USER_VAR_DB_MONGO_URI }}
+          USER_VAR_REDIS_HOST: ${{ secrets.USER_VAR_REDIS_HOST }}
         run: ./bootstrap.sh
       
       # Ejecutar deploy.go con todas las variables de entorno necesarias
       - name: Run deploy.go script
         env:
           USER_VAR_DB_MONGO_URI: ${{ secrets.USER_VAR_DB_MONGO_URI }}
+          USER_VAR_REDIS_HOST: ${{ secrets.USER_VAR_REDIS_HOST }}
         run: go run deploy.go
       
       # Construir la aplicación para Lambda
       - name: Build Lambda Function
         env:
           USER_VAR_DB_MONGO_URI: ${{ secrets.USER_VAR_DB_MONGO_URI }}
+          USER_VAR_REDIS_HOST: ${{ secrets.USER_VAR_REDIS_HOST }}
         run: |
             # Navegar al directorio del módulo que contiene el código
             cd authorizer/app
@@ -166,10 +171,12 @@ jobs:
       - name: CDK Synth
         env:
           USER_VAR_DB_MONGO_URI: ${{ secrets.USER_VAR_DB_MONGO_URI }}
+          USER_VAR_REDIS_HOST: ${{ secrets.USER_VAR_REDIS_HOST }}
         run: cdk synth
       
       # Desplegar la aplicación CDK
       - name: CDK Deploy
         env:
           USER_VAR_DB_MONGO_URI: ${{ secrets.USER_VAR_DB_MONGO_URI }}
+          USER_VAR_REDIS_HOST: ${{ secrets.USER_VAR_REDIS_HOST }}
         run: cdk deploy --require-approval never --all
