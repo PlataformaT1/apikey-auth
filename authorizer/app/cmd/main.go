@@ -61,9 +61,9 @@ func init() {
 	}
 
 	// Configurar conexión MongoDB
-	mongoURI := os.Getenv("USER_VAR_MONGO_URI")
+	mongoURI := os.Getenv("USER_VAR_DB_MONGO_URI")
 	if mongoURI == "" {
-		logger.Error("La variable de entorno USER_VAR_MONGO_URI es requerida")
+		logger.Error("La variable de entorno USER_VAR_DB_MONGO_URI es requerida")
 	}
 
 	mongoDBName := os.Getenv("USER_VAR_MONGO_DB_NAME")
