@@ -42,7 +42,6 @@ func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorize
 	log.Println("inicia el autorizador")
 	log.Printf("Procesando solicitud: Method=%s, Path=%s", request.HTTPMethod, request.Path)
 
-
 	log.Printf(request.Headers["x-api-key"])
 
 	apiKey := request.Headers["x-api-key"]
@@ -53,7 +52,7 @@ func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorize
 		}), nil
 	}
 	// Log del API key (puede omitirse en producción por seguridad)
-	log.Printf("API Key recibida: %s", apiKey[:5] + "...")
+	log.Printf("API Key recibida: %s", apiKey[:5]+"...")
 
 	// Validar el API key con tu servicio existente
 	data, err := apiKeyService.ValidateApiKey(ctx, apiKey)
@@ -105,7 +104,7 @@ func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorize
 		// En caso de error de Redis, permitimos la solicitud pero registramos el error
 		log.Printf("Error checking rate limit: %v", err)
 	} else if !allowed {
-		log.Printf("Rate limit excedido para ClientID: %s (Límite: %d reqs/seg)",
+		log.Printf("Rate limit excedido para ClientID: %s (Límite: %d reqs/seg)", data.ClientID, data.UsageLimits.RequestsPerSecond)
 		// Rate limit excedido
 		resetTime := time.Now().Add(1 * time.Second).Unix()
 		return generatePolicyWithHeaders("user", "Deny", request.MethodArn, map[string]interface{}{
