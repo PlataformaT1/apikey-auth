@@ -144,6 +144,8 @@ jobs:
         env:
           USER_VAR_DB_MONGO_URI: ${{ secrets.USER_VAR_DB_MONGO_URI }}
           USER_VAR_REDIS_HOST: ${{ secrets.USER_VAR_REDIS_HOST }}
+          USER_VAR_MONGO_DB_NAME: ${{ vars.MONGO_DB_NAME }}
+          USER_VAR_MONGO_COLLECTION: ${{ vars.MONGO_COLLECTION }}
         run: ./bootstrap.sh
       
       # Ejecutar deploy.go con todas las variables de entorno necesarias
@@ -151,6 +153,8 @@ jobs:
         env:
           USER_VAR_DB_MONGO_URI: ${{ secrets.USER_VAR_DB_MONGO_URI }}
           USER_VAR_REDIS_HOST: ${{ secrets.USER_VAR_REDIS_HOST }}
+          USER_VAR_MONGO_DB_NAME: ${{ vars.MONGO_DB_NAME }}
+          USER_VAR_MONGO_COLLECTION: ${{ vars.MONGO_COLLECTION }}
         run: go run deploy.go
       
       # Construir la aplicación para Lambda
@@ -158,21 +162,38 @@ jobs:
         env:
           USER_VAR_DB_MONGO_URI: ${{ secrets.USER_VAR_DB_MONGO_URI }}
           USER_VAR_REDIS_HOST: ${{ secrets.USER_VAR_REDIS_HOST }}
+          USER_VAR_MONGO_DB_NAME: ${{ vars.MONGO_DB_NAME }}
+          USER_VAR_MONGO_COLLECTION: ${{ vars.MONGO_COLLECTION }}
         run: |
-            # Navegar al directorio del módulo que contiene el código
-            cd authorizer/app
-            
-            # Descargar dependencias del módulo
-            go mod download
-            
-            mkdir -p .aws-sam/build/LambdaAuthorizer
-            GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o .aws-sam/build/LambdaAuthorizer/bootstrap authorizer/app/cmd/main.go
+          # Crear directorio de salida
+          mkdir -p .aws-sam/build/LambdaAuthorizer
+          
+          # Navegar al directorio del módulo
+          cd authorizer/app
+          
+          # Descargar dependencias del módulo
+          go mod download
+          
+          # Compilar la aplicación (nota el ./ al principio y la ruta relativa)
+          echo "Compilando Lambda Authorizer..."
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o ../../.aws-sam/build/LambdaAuthorizer/bootstrap ./cmd/main.go
+          
+          # Verificar que el binario se ha creado correctamente
+          if [ -f "../../.aws-sam/build/LambdaAuthorizer/bootstrap" ]; then
+            echo "Binario compilado correctamente en .aws-sam/build/LambdaAuthorizer/bootstrap"
+            ls -la ../../.aws-sam/build/LambdaAuthorizer/
+          else
+            echo "Error: El binario no se creó correctamente"
+            exit 1
+          fi
       
       # Sintetizar la aplicación CDK
       - name: CDK Synth
         env:
           USER_VAR_DB_MONGO_URI: ${{ secrets.USER_VAR_DB_MONGO_URI }}
           USER_VAR_REDIS_HOST: ${{ secrets.USER_VAR_REDIS_HOST }}
+          USER_VAR_MONGO_DB_NAME: ${{ vars.MONGO_DB_NAME }}
+          USER_VAR_MONGO_COLLECTION: ${{ vars.MONGO_COLLECTION }}
         run: cdk synth
       
       # Desplegar la aplicación CDK
@@ -180,4 +201,6 @@ jobs:
         env:
           USER_VAR_DB_MONGO_URI: ${{ secrets.USER_VAR_DB_MONGO_URI }}
           USER_VAR_REDIS_HOST: ${{ secrets.USER_VAR_REDIS_HOST }}
+          USER_VAR_MONGO_DB_NAME: ${{ vars.MONGO_DB_NAME }}
+          USER_VAR_MONGO_COLLECTION: ${{ vars.MONGO_COLLECTION }}
         run: cdk deploy --require-approval never --all
