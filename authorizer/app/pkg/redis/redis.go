@@ -9,23 +9,48 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/sirupsen/logrus"
 )
 
 var (
 	redisClient     *redis.Client
 	redisClientOnce sync.Once
+	logger          *logrus.Logger
 )
+
+// InitLogger inicializa el logger para el paquete Redis
+func InitLogger(l *logrus.Logger) {
+	if l != nil {
+		logger = l
+	} else {
+		// Fallback a un logger básico si no se proporciona uno
+		logger = logrus.New()
+		logger.SetFormatter(&logrus.JSONFormatter{})
+	}
+}
 
 // GetClient returns a singleton Redis client
 func GetClient() *redis.Client {
 	redisClientOnce.Do(func() {
+
+		// Si no se ha inicializado el logger y no estamos usando el logger global
+		if logger == nil {
+			// Usamos el logger global o creamos uno básico
+			defaultLogger := logrus.New()
+			defaultLogger.SetFormatter(&logrus.JSONFormatter{})
+			logger = defaultLogger
+		}
+
 		// Get Redis connection details from environment variables
 		redisHost := os.Getenv("USER_VAR_REDIS_HOST")
 		if redisHost == "" {
 			redisHost = "localhost:6379" // Default for local development
+			if logger != nil {
+				logger.WithField("redisHost", redisHost).Warn("No se ha configurado USER_VAR_REDIS_HOST, usando valor por defecto")
+			} else {
+				log.Printf("No se ha configurado USER_VAR_REDIS_HOST, usando valor por defecto: %s", redisHost)
+			}
 		}
-
-		//redisPassword := os.Getenv("REDIS_PASSWORD")
 
 		// Create Redis client
 		redisClient = redis.NewClient(&redis.Options{
@@ -40,9 +65,20 @@ func GetClient() *redis.Client {
 
 		_, err := redisClient.Ping(ctx).Result()
 		if err != nil {
-			log.Printf("Failed to connect to Redis: %v", err)
+			if logger != nil {
+				logger.WithFields(logrus.Fields{
+					"redisHost": redisHost,
+					"error":     err,
+				}).Error("Error al conectar con Redis")
+			} else {
+				log.Printf("Failed to connect to Redis: %v", err)
+			}
 		} else {
-			log.Printf("Successfully connected to Redis at %s", redisHost)
+			if logger != nil {
+				logger.WithField("redisHost", redisHost).Info("Conexión a Redis establecida correctamente")
+			} else {
+				log.Printf("Successfully connected to Redis at %s", redisHost)
+			}
 		}
 	})
 
