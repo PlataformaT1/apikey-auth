@@ -30,6 +30,14 @@ func NewDeployStack(scope constructs.Construct, id string, props *DeployStackPro
 	if mongoURI == "" {
 		log.Fatalf("La variable de entorno USER_VAR_DB_MONGO_URI no está definida")
 	}
+	mongoDBName := os.Getenv("USER_VAR_MONGO_DB_NAME")
+	if mongoDBName == "" {
+		log.Fatalf("La variable de entorno USER_VAR_MONGO_DB_NAME no está definida")
+	}
+	mongoCollection := os.Getenv("USER_VAR_MONGO_COLLECTION")
+	if mongoCollection == "" {
+		log.Fatalf("La variable de entorno USER_VAR_MONGO_COLLECTION no está definida")
+	}
 
 	// Obtener variable de entorno para Redis
 	redisHost := os.Getenv("USER_VAR_REDIS_HOST")
@@ -38,10 +46,12 @@ func NewDeployStack(scope constructs.Construct, id string, props *DeployStackPro
 	}
 
 	envs := &map[string]*string{
-		"USER_VAR_LOG_CHAN":     jsii.String(logChan),
-		"USER_VAR_LOG_LEVEL":    jsii.String(logLevel),
-		"USER_VAR_DB_MONGO_URI": jsii.String(mongoURI),
-		"USER_VAR_REDIS_HOST":   jsii.String(redisHost), // Añadido para Redis
+		"USER_VAR_LOG_CHAN":         jsii.String(logChan),
+		"USER_VAR_LOG_LEVEL":        jsii.String(logLevel),
+		"USER_VAR_DB_MONGO_URI":     jsii.String(mongoURI),
+		"USER_VAR_REDIS_HOST":       jsii.String(redisHost), // Añadido para Redis
+		"USER_VAR_MONGO_DB_NAME":    jsii.String(mongoDBName),
+		"USER_VAR_MONGO_COLLECTION": jsii.String(mongoCollection),
 	}
 
 	// Lookup VPC
@@ -65,10 +75,11 @@ func NewDeployStack(scope constructs.Construct, id string, props *DeployStackPro
 
 	// Create Lambda function with VPC and specific subnet
 	awslambda.NewFunction(stack, jsii.String("AuthorizerApiKeyFunction"), &awslambda.FunctionProps{
-		FunctionName:      jsii.String("authorizerApiKeyFunction"),
-		Runtime:           awslambda.Runtime_PROVIDED_AL2023(),
-		Architecture:      awslambda.Architecture_X86_64(),
-		Code:              awslambda.AssetCode_FromAsset(jsii.String("./authorizer/app/cmd"), nil),
+		FunctionName: jsii.String("authorizerApiKeyFunction"),
+		Runtime:      awslambda.Runtime_PROVIDED_AL2023(),
+		Architecture: awslambda.Architecture_X86_64(),
+		//Code:              awslambda.AssetCode_FromAsset(jsii.String("./authorizer/app/cmd"), nil),
+		Code:              awslambda.AssetCode_FromAsset(jsii.String("./.aws-sam/build/LambdaAuthorizer"), nil),
 		Handler:           jsii.String("bootstrap"),
 		MemorySize:        jsii.Number(128),
 		Timeout:           awscdk.Duration_Seconds(jsii.Number(60)),

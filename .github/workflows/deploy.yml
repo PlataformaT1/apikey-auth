@@ -100,6 +100,8 @@ jobs:
           echo "USER_VAR_AWS_ACCOUNT_ID=${{ vars.AWS_ACCOUNT_ID }}" >> $GITHUB_ENV
           echo "USER_VAR_AWS_REGION=${{ vars.AWS_REGION }}" >> $GITHUB_ENV
           echo "USER_VAR_REDIS_HOST=${{ secrets.USER_VAR_REDIS_HOST }}" >> $GITHUB_ENV
+          echo "USER_VAR_MONGO_DB_NAME=${{ vars.MONGO_DB_NAME }}" >> $GITHUB_ENV
+          echo "USER_VAR_MONGO_COLLECTION=${{ vars.MONGO_COLLECTION }}" >> $GITHUB_ENV
           echo "JSII_SILENCE_WARNING_DEPRECATED_NODE_VERSION=true" >> $GITHUB_ENV
       
       # Paso de depuración para variables de entorno de GitHub
@@ -114,6 +116,8 @@ jobs:
           echo "AWS_REGION: ${{ vars.AWS_REGION }}"
           echo "AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}"
           echo "USER_VAR_DB_MONGO_URI is set: ${{ secrets.USER_VAR_DB_MONGO_URI != '' }}"
+          echo "USER_VAR_MONGO_DB_NAME is set: ${{ vars.MONGO_DB_NAME != '' }}"
+          echo "USER_VAR_MONGO_COLLECTION is set: ${{ vars.MONGO_COLLECTION != '' }}"
           echo "USER_VAR_REDIS_HOST is set: ${{ secrets.USER_VAR_REDIS_HOST != '' }}"
           echo "USER_VAR_LOG_CHAN: $USER_VAR_LOG_CHAN"
           echo "USER_VAR_LOG_LEVEL: $USER_VAR_LOG_LEVEL"
@@ -161,11 +165,8 @@ jobs:
             # Descargar dependencias del módulo
             go mod download
             
-            # Crear directorio de salida (ajusta según sea necesario)
-            mkdir -p ../../.aws-sam/build/LambdaAuthorizer
-            
-            # Compilar la aplicación
-            GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o ../../.aws-sam/build/LambdaAuthorizer/bootstrap ./cmd/main.go
+            mkdir -p .aws-sam/build/LambdaAuthorizer
+            GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o .aws-sam/build/LambdaAuthorizer/bootstrap authorizer/app/cmd/main.go
       
       # Sintetizar la aplicación CDK
       - name: CDK Synth
