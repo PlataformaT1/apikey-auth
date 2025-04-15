@@ -63,7 +63,7 @@ func init() {
 	// Configurar conexión MongoDB
 	mongoURI := os.Getenv("USER_VAR_MONGO_URI")
 	if mongoURI == "" {
-		logger.Fatal("La variable de entorno USER_VAR_MONGO_URI es requerida")
+		logger.Error("La variable de entorno USER_VAR_MONGO_URI es requerida")
 	}
 
 	mongoDBName := os.Getenv("USER_VAR_MONGO_DB_NAME")
@@ -84,13 +84,13 @@ func init() {
 
 	mongoClient, err := mongo.Connect(mongoCtx, options.Client().ApplyURI(mongoURI))
 	if err != nil {
-		logger.WithError(err).Fatal("Error al conectar con MongoDB")
+		logger.WithError(err).Error("Error al conectar con MongoDB")
 	}
 
 	// Verificar conexión a MongoDB
 	err = mongoClient.Ping(mongoCtx, nil)
 	if err != nil {
-		logger.WithError(err).Fatal("Error al verificar conexión con MongoDB")
+		logger.WithError(err).Error("Error al verificar conexión con MongoDB")
 	}
 	logger.Info("Conexión a MongoDB establecida correctamente")
 
