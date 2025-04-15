@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"os"
@@ -52,12 +53,16 @@ func GetClient() *redis.Client {
 			}
 		}
 
+		// Configurar opciones de Redis con TLS
+		opts := &redis.Options{
+			Addr:      redisHost,
+			Password:  "",            // Si tienes contraseña
+			DB:        0,             // DB por defecto
+			TLSConfig: &tls.Config{}, // Habilitar TLS
+		}
+
 		// Create Redis client
-		redisClient = redis.NewClient(&redis.Options{
-			Addr:     redisHost,
-			Password: "",
-			DB:       0, // Default DB
-		})
+		redisClient = redis.NewClient(opts)
 
 		// Test the connection
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
