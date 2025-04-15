@@ -20,7 +20,7 @@ var (
 func GetClient() *redis.Client {
 	redisClientOnce.Do(func() {
 		// Get Redis connection details from environment variables
-		redisHost := os.Getenv("REDIS_HOST")
+		redisHost := os.Getenv("USER_VAR_REDIS_HOST")
 		if redisHost == "" {
 			redisHost = "localhost:6379" // Default for local development
 		}

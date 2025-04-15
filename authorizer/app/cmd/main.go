@@ -26,7 +26,7 @@ func init() {
 
 	// Inicialización y logs
 	log.Println("Inicializando Lambda Authorizer")
-	redisHost := os.Getenv("REDIS_HOST")
+	redisHost := os.Getenv("USER_VAR_REDIS_HOST")
 	log.Printf("Redis Host configurado: %s", redisHost)
 
 	// Inicializa redis

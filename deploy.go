@@ -41,7 +41,7 @@ func NewDeployStack(scope constructs.Construct, id string, props *DeployStackPro
 		"USER_VAR_LOG_CHAN":     jsii.String(logChan),
 		"USER_VAR_LOG_LEVEL":    jsii.String(logLevel),
 		"USER_VAR_DB_MONGO_URI": jsii.String(mongoURI),
-		"REDIS_HOST":            jsii.String(redisHost), // Añadido para Redis
+		"USER_VAR_REDIS_HOST":   jsii.String(redisHost), // Añadido para Redis
 	}
 
 	// Lookup VPC
