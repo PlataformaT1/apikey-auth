@@ -14,9 +14,9 @@ type ApiKey struct {
 	CreatedAt          time.Time              `json:"createdAt" bson:"createdAt"`
 	ExpiredAt          time.Time              `json:"expiredAt" bson:"expiredAt"`
 	UpdatedAt          time.Time              `json:"updatedAt" bson:"updatedAt"`
-	CreatedAtLocalized string                 `json:"createdAtLocalized" bson:"createdAtLocalized"`
-	ExpiredAtLocalized string                 `json:"expiredAtLocalized" bson:"expiredAtLocalized"`
-	UpdatedAtLocalized string                 `json:"updatedAtLocalized" bson:"updatedAtLocalized"`
+	CreatedAtLocalized time.Time              `json:"createdAtLocalized" bson:"createdAtLocalized"`
+	ExpiredAtLocalized time.Time              `json:"expiredAtLocalized" bson:"expiredAtLocalized"`
+	UpdatedAtLocalized time.Time              `json:"updatedAtLocalized" bson:"updatedAtLocalized"`
 	IsActive           bool                   `json:"isActive" bson:"isActive"`
 	RequestCount       int                    `json:"requestCount" bson:"requestCount"`
 	PlatformData       map[string]interface{} `json:"platformData" bson:"platformData"`
