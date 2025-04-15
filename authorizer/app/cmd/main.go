@@ -5,29 +5,41 @@ import (
 	"apikey/pkg/redis"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"strconv"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/sirupsen/logrus"
 )
 
 // Inicializa los servicios necesarios
 var apiKeyService service.ServiceApiKey
+var logger *logrus.Logger
 
 func init() {
-	// Configurar el logger para incluir fecha y hora
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+	// Configurar logger
+	logger = logrus.New()
 
-	// Puedes añadir un prefijo a todos los logs
-	log.SetPrefix("[AUTHORIZER] ")
+	// Configurar formato JSON para CloudWatch Logs (opcional)
+	logger.SetFormatter(&logrus.JSONFormatter{})
+
+	// Configurar nivel de log basado en variable de entorno
+	logLevel := os.Getenv("USER_VAR_LOG_LEVEL")
+	level, err := logrus.ParseLevel(logLevel)
+	if err != nil {
+		level = logrus.InfoLevel // Nivel por defecto
+	}
+	logger.SetLevel(level)
+
+	logger.Info("Inicializando Lambda Authorizer")
 
 	// Inicialización y logs
-	log.Println("Inicializando Lambda Authorizer")
+	logger.Info("Inicializando Lambda Authorizer")
+
 	redisHost := os.Getenv("USER_VAR_REDIS_HOST")
-	log.Printf("Redis Host configurado: %s", redisHost)
+	logger.WithField("redisHost", redisHost).Info("Configuración de Redis cargada")
 
 	// Inicializa redis
 	_ = redis.GetClient()
@@ -38,26 +50,34 @@ func init() {
 
 // HandleRequest es la función Lambda que se ejecuta para autorizar solicitudes
 func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorizerRequestTypeRequest) (events.APIGatewayCustomAuthorizerResponse, error) {
-	// Extrae el API key del header
-	log.Println("inicia el autorizador")
-	log.Printf("Procesando solicitud: Method=%s, Path=%s", request.HTTPMethod, request.Path)
+	/// Crear un logger con contexto de la solicitud
+	reqLogger := logger.WithFields(logrus.Fields{
+		"method": request.HTTPMethod,
+		"path":   request.Path,
+		"source": request.RequestContext.Identity.SourceIP,
+	})
 
-	log.Printf(request.Headers["x-api-key"])
+	reqLogger.Info("Procesando solicitud de autorización")
 
 	apiKey := request.Headers["x-api-key"]
 	if apiKey == "" {
-		log.Println("Error: API key no encontrada en headers")
+		reqLogger.Warn("Error: API key no encontrada en headers")
 		return generatePolicy("user", "Deny", request.MethodArn, map[string]interface{}{
 			"error": "Missing API key",
 		}), nil
 	}
-	// Log del API key (puede omitirse en producción por seguridad)
-	log.Printf("API Key recibida: %s", apiKey[:5]+"...")
+
+	// Ocultar parte del API key por seguridad
+	maskedKey := apiKey
+	if len(apiKey) > 8 {
+		maskedKey = apiKey[:4] + "..." + apiKey[len(apiKey)-4:]
+	}
+	reqLogger = reqLogger.WithField("apiKey", maskedKey)
 
 	// Validar el API key con tu servicio existente
 	data, err := apiKeyService.ValidateApiKey(ctx, apiKey)
 	if err != nil {
-		log.Printf("Error validando API key: %v", err)
+		reqLogger.WithError(err).Error("Error validando API key")
 		return generatePolicy("user", "Deny", request.MethodArn, map[string]interface{}{
 			"error": fmt.Sprintf("Error validating API key: %v", err),
 		}), nil
@@ -69,7 +89,7 @@ func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorize
 			"error": "API key is inactive",
 		}), nil
 	}
-	log.Printf("API Key válida para ClientID: %s, Plataforma: %s", data.ClientID, data.Platform)
+	reqLogger.Printf("API Key válida para ClientID: %s, Plataforma: %s", data.ClientID, data.Platform)
 
 	// Verificar que el API key no haya expirado
 	currentTime := time.Now()
@@ -94,7 +114,7 @@ func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorize
 				}), nil
 			}
 		} else {
-			log.Printf("Could not parse content-length header: %v", err)
+			reqLogger.Printf("Could not parse content-length header: %v", err)
 		}
 	}
 
@@ -102,9 +122,9 @@ func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorize
 	allowed, err := redis.CheckAndIncrementRateLimit(ctx, data.ClientID, data.UsageLimits.RequestsPerSecond)
 	if err != nil {
 		// En caso de error de Redis, permitimos la solicitud pero registramos el error
-		log.Printf("Error checking rate limit: %v", err)
+		reqLogger.Printf("Error checking rate limit: %v", err)
 	} else if !allowed {
-		log.Printf("Rate limit excedido para ClientID: %s (Límite: %d reqs/seg)", data.ClientID, data.UsageLimits.RequestsPerSecond)
+		reqLogger.Printf("Rate limit excedido para ClientID: %s (Límite: %d reqs/seg)", data.ClientID, data.UsageLimits.RequestsPerSecond)
 		// Rate limit excedido
 		resetTime := time.Now().Add(1 * time.Second).Unix()
 		return generatePolicyWithHeaders("user", "Deny", request.MethodArn, map[string]interface{}{
@@ -116,7 +136,7 @@ func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorize
 		}), nil
 	}
 
-	log.Printf("Decisión de autorización: %s", "Allow")
+	reqLogger.Printf("Decisión de autorización: %s", "Allow")
 	// Si todo está bien, autorizamos la solicitud
 	return generatePolicy("user", "Allow", request.MethodArn, data.PlatformData), nil
 }
