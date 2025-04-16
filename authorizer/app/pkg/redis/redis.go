@@ -54,10 +54,13 @@ func GetClient() *redis.Client {
 
 		// Configurar opciones de Redis con TLS
 		opts := &redis.Options{
-			Addr:      redisHost,
-			Password:  "",            // Si tienes contraseña
-			DB:        0,             // DB por defecto
-			TLSConfig: &tls.Config{}, // Habilitar TLS
+			Addr:         redisHost,
+			Password:     "",            // Si tienes contraseña
+			DB:           0,             // DB por defecto
+			TLSConfig:    &tls.Config{}, // Habilitar TLS
+			DialTimeout:  15 * time.Second,
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
 		}
 
 		// Create Redis client
@@ -117,4 +120,124 @@ func CheckAndIncrementRateLimit(ctx context.Context, sellerID string, maxRequest
 
 	// Check if rate limit is exceeded
 	return int(result) <= maxRequestsPerSecond, nil
+}
+
+// CheckAndIncrementRateLimitWithBlocking implementa un rate limiter que bloquea temporalmente
+// a los clientes que exceden el límite repetidamente
+func CheckAndIncrementRateLimitWithBlocking(ctx context.Context, clientID string, ipAddress string, maxRequestsPerSecond int) (bool, string, error) {
+	rdb := GetClient()
+	now := time.Now().Unix()
+
+	// Clave para el contador por segundo
+	rateLimitKey := fmt.Sprintf("ratelimit:%s:%d", clientID, now)
+
+	// Clave para el bloqueo temporal
+	blockKey := fmt.Sprintf("ratelimit:blocked:%s", clientID)
+
+	// Clave para contar excesos de límite
+	exceedCountKey := fmt.Sprintf("ratelimit:exceed:%s", clientID)
+
+	// Clave para limitación por IP
+	ipKey := fmt.Sprintf("ratelimit:ip:%s:%d", ipAddress, now/60) // Por minuto
+
+	// Script Lua para implementar rate limiting con bloqueo
+	script := `
+	-- Comprobar si el cliente está bloqueado
+	local isBlocked = redis.call('EXISTS', KEYS[2])
+	if isBlocked == 1 then
+	local ttl = redis.call('TTL', KEYS[2])
+	return {0, "BLOCKED", ttl}
+	end
+
+	-- Incrementar contador de IP (por minuto)
+	local ipCount = redis.call('INCR', KEYS[4])
+	if ipCount == 1 then
+	redis.call('EXPIRE', KEYS[4], 60)
+	end
+
+	-- Bloquear inmediatamente si hay demasiadas solicitudes desde la misma IP
+	local ipLimit = tonumber(ARGV[2]) * 10 -- Multiplicador para IP
+	if ipCount > ipLimit then
+	redis.call('SET', KEYS[2], 1)
+	redis.call('EXPIRE', KEYS[2], 300) -- Bloquear por 5 minutos
+	return {0, "IP_RATE_EXCEEDED", 300}
+	end
+
+	-- Incrementar contador normal
+	local current = redis.call('INCR', KEYS[1])
+	if current == 1 then
+	redis.call('EXPIRE', KEYS[1], 1)
+	end
+
+	-- Comprobar si excede el límite
+	if current > tonumber(ARGV[1]) then
+	-- Incrementar contador de excesos
+	local exceedCount = redis.call('INCR', KEYS[3])
+	if exceedCount == 1 then
+	redis.call('EXPIRE', KEYS[3], 60) -- Expirar después de 1 minuto
+	end
+
+	-- Si ha excedido el límite muchas veces, bloquearlo temporalmente
+	if exceedCount > 5 then
+	local blockTime = 30 -- 30 segundos por defecto
+	redis.call('SET', KEYS[2], 1)
+	redis.call('EXPIRE', KEYS[2], blockTime)
+	return {0, "RATE_EXCEEDED_BLOCKED", blockTime}
+	end
+
+	return {0, "RATE_EXCEEDED", 0}
+	end
+
+	return {1, "OK", current}
+	`
+
+	// Ejecutar el script
+	result, err := rdb.Eval(
+		ctx,
+		script,
+		[]string{rateLimitKey, blockKey, exceedCountKey, ipKey},
+		maxRequestsPerSecond, maxRequestsPerSecond,
+	).Result()
+
+	if err != nil {
+		if logger != nil {
+			logger.WithError(err).Error("Error al ejecutar script de rate limit")
+		}
+		return true, "ERROR", err // Permitir en caso de error
+	}
+
+	// Analizar resultado
+	results, ok := result.([]interface{})
+	if !ok || len(results) < 2 {
+		return true, "INVALID_RESULT", fmt.Errorf("formato de resultado inesperado")
+	}
+
+	// Extraer el resultado principal (permitido o no)
+	allowed, _ := results[0].(int64)
+	reason, _ := results[1].(string)
+
+	// Registrar información
+	if logger != nil {
+		logFields := logrus.Fields{
+			"clientID":    clientID,
+			"ipAddress":   ipAddress,
+			"maxRequests": maxRequestsPerSecond,
+			"allowed":     allowed == 1,
+			"reason":      reason,
+		}
+
+		if len(results) > 2 {
+			if ttl, ok := results[2].(int64); ok {
+				logFields["ttl"] = ttl
+			}
+		}
+
+		if allowed == 1 {
+			logger.WithFields(logFields).Debug("Rate limit check passed")
+		} else {
+			logger.WithFields(logFields).Warn("Rate limit exceeded")
+		}
+	}
+
+	return allowed == 1, reason, nil
 }

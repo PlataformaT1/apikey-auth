@@ -105,6 +105,12 @@ func init() {
 
 // HandleRequest es la función Lambda que se ejecuta para autorizar solicitudes
 func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorizerRequestTypeRequest) (events.APIGatewayCustomAuthorizerResponse, error) {
+	// Recuperar de pánico para evitar que la Lambda falle completamente
+	defer func() {
+		if r := recover(); r != nil {
+			logger.WithField("panic", r).Error("Panic recuperado en el autorizador")
+		}
+	}()
 	/// Crear un logger con contexto de la solicitud
 	reqLogger := logger.WithFields(logrus.Fields{
 		"method": request.HTTPMethod,
@@ -190,21 +196,41 @@ func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorize
 		}
 	}*/
 
-	// Verificar rate limit
-	allowed, err := redis.CheckAndIncrementRateLimit(ctx, data.ClientID, data.UsageLimits.RequestsPerSecond)
+	// Verificar rate limit con el sistema mejorado
+	ipAddress := request.RequestContext.Identity.SourceIP
+	allowed, reason, err := redis.CheckAndIncrementRateLimitWithBlocking(
+		ctx,
+		data.ClientID,
+		ipAddress,
+		data.UsageLimits.RequestsPerSecond,
+	)
+
 	if err != nil {
-		// En caso de error de Redis, permitimos la solicitud pero registramos el error
+		// En caso de error, permitimos la solicitud pero registramos el error
 		reqLogger.WithError(err).Error("Error al verificar rate limit en Redis")
 	} else if !allowed {
 		reqLogger.WithFields(logrus.Fields{
 			"clientID":          data.ClientID,
+			"ipAddress":         ipAddress,
 			"requestsPerSecond": data.UsageLimits.RequestsPerSecond,
+			"reason":            reason,
 		}).Warn("Rate limit excedido")
 
 		// Rate limit excedido
 		resetTime := time.Now().Add(1 * time.Second).Unix()
+
+		// Mensajes personalizados según el motivo
+		errorMsg := "Rate limit exceeded"
+		if reason == "BLOCKED" || reason == "RATE_EXCEEDED_BLOCKED" {
+			errorMsg = "Too many requests. You have been temporarily blocked."
+		} else if reason == "IP_RATE_EXCEEDED" {
+			errorMsg = "Too many requests from your IP address."
+		}
+
 		return generatePolicyWithHeaders("user", "Deny", request.MethodArn, map[string]interface{}{
-			"error": "Rate limit exceeded",
+			"error":      errorMsg,
+			"statusCode": 429, // Too Many Requests
+			"reason":     reason,
 		}, map[string]string{
 			"X-RateLimit-Limit":     fmt.Sprintf("%d", data.UsageLimits.RequestsPerSecond),
 			"X-RateLimit-Remaining": "0",
