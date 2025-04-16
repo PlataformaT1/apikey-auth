@@ -83,12 +83,8 @@ func GetClient() *redis.Client {
 	return redisClient
 }
 
-// CheckAndIncrementRateLimitWithBlocking implementa un rate limiter que bloquea temporalmente
-// a los clientes que exceden el límite repetidamente.
-// Retorna:
-// - allowed: true si está permitido, false si excede el límite
-// - reason: explicación del resultado ("OK", "RATE_EXCEEDED", "BLOCKED", etc.)
-// - error: cualquier error técnico ocurrido
+// CheckAndIncrementRateLimitWithBlocking verifica e incrementa el contador de rate limit
+// Esta versión corregida funciona con Redis Cluster
 func CheckAndIncrementRateLimitWithBlocking(ctx context.Context, clientID string, ipAddress string, maxRequestsPerSecond int) (bool, string, error) {
 	// Validar parámetros básicos
 	if clientID == "" {
@@ -111,152 +107,106 @@ func CheckAndIncrementRateLimitWithBlocking(ctx context.Context, clientID string
 
 	now := time.Now().Unix()
 
-	// Clave para el contador por segundo (granularidad de segundo)
-	rateLimitKey := fmt.Sprintf("ratelimit:%s:%d", clientID, now)
+	// IMPORTANTE: En Redis Cluster, necesitamos asegurar que todas las claves usadas
+	// en una operación pertenezcan al mismo slot de hash.
+	// Para hacer esto, usamos el formato: {hash_tag}:resto:de:la:clave
+	// Donde todo lo que está entre {} se usa para calcular el slot.
 
-	// Clave para el bloqueo temporal del cliente
-	blockKey := fmt.Sprintf("ratelimit:blocked:%s", clientID)
+	// Usamos clientID como hash tag para asegurar que todas las claves estén en el mismo slot
+	prefix := fmt.Sprintf("{%s}", clientID)
 
-	// Clave para contar cuántas veces se excede el límite
-	exceedCountKey := fmt.Sprintf("ratelimit:exceed:%s", clientID)
+	// Clave para el contador por segundo
+	rateLimitKey := fmt.Sprintf("%s:rate:%d", prefix, now)
 
-	// Clave para limitación por IP (granularidad de minuto)
-	ipKey := fmt.Sprintf("ratelimit:ip:%s:%d", ipAddress, now/60)
+	// Clave para el bloqueo temporal
+	blockKey := fmt.Sprintf("%s:block", prefix)
 
-	// Script Lua simplificado y más robusto para implementar rate limiting
-	script := `
-	-- Verificar si el cliente está bloqueado
-	local isBlocked = redis.call('EXISTS', KEYS[2])
-	if isBlocked == 1 then
-		local ttl = redis.call('TTL', KEYS[2])
-		return {0, "BLOCKED", ttl}
-	end
+	// Clave para contar excesos
+	exceedCountKey := fmt.Sprintf("%s:exceed", prefix)
 
-	-- Verificar límite por IP (protección contra abusos)
-	local ipCount = redis.call('INCR', KEYS[4])
-	if ipCount == 1 then
-		redis.call('EXPIRE', KEYS[4], 60) -- Expira en 1 minuto
-	end
+	// Para IP también usamos el mismo prefijo para asegurar que esté en el mismo slot
+	ipKey := fmt.Sprintf("%s:ip:%s:%d", prefix, ipAddress, now/60)
 
-	-- Umbral de IP: 10 veces el límite por segundo * 60 segundos
-	local ipLimit = tonumber(ARGV[1]) * 10
-	if ipCount > ipLimit then
-		-- Bloquear temporalmente por exceso de IP
-		redis.call('SETEX', KEYS[2], 60, 1) -- Bloquear por 1 minuto
-		return {0, "IP_RATE_EXCEEDED", 60}
-	end
-
-	-- Incrementar contador normal (por segundo)
-	local current = redis.call('INCR', KEYS[1])
-	if current == 1 then
-		redis.call('EXPIRE', KEYS[1], 2) -- 2 segundos para mayor seguridad
-	end
-
-	-- Verificar si excede el límite por segundo
-	if current > tonumber(ARGV[1]) then
-		-- Incrementar contador de excesos
-		local exceedCount = redis.call('INCR', KEYS[3])
-		if exceedCount == 1 then
-			redis.call('EXPIRE', KEYS[3], 60) -- Contar excesos durante 1 minuto
-		end
-
-		-- Si excede más de 5 veces en un minuto, bloquear brevemente
-		if exceedCount > 5 then
-			local blockTime = 10 -- 10 segundos
-			redis.call('SETEX', KEYS[2], blockTime, 1)
-			return {0, "RATE_EXCEEDED_BLOCKED", blockTime}
-		end
-
-		-- Excede pero no está bloqueado aún
-		return {0, "RATE_EXCEEDED", 0}
-	end
-
-	-- Todo bien, dentro del límite
-	return {1, "OK", current}
-	`
-
-	// Ejecutar el script con retry en caso de error
-	var result interface{}
-	var err error
-
-	// Intentar hasta 2 veces con un pequeño delay entre intentos
-	for attempts := 0; attempts < 2; attempts++ {
-		result, err = rdb.Eval(
-			ctx,
-			script,
-			[]string{rateLimitKey, blockKey, exceedCountKey, ipKey},
-			maxRequestsPerSecond,
-		).Result()
-
-		if err == nil {
-			break // Si no hay error, salimos del bucle
-		}
-
-		// Si hay error y es el primer intento, esperamos un poco
-		if attempts == 0 {
-			time.Sleep(50 * time.Millisecond)
-		}
-	}
-
-	// Si después de los intentos aún hay error
+	// Verificar primero si está bloqueado (operación simple)
+	blocked, err := rdb.Exists(ctx, blockKey).Result()
 	if err != nil {
-		logger.WithFields(logrus.Fields{
-			"clientID": clientID,
-			"error":    err,
-		}).Error("Error al ejecutar script de rate limit")
-		return true, "REDIS_ERROR", err // Permitir en caso de error técnico
+		logger.WithError(err).Error("Error al verificar estado de bloqueo")
+		return true, "REDIS_ERROR", err
 	}
 
-	// Analizar resultado del script Lua
-	results, ok := result.([]interface{})
-	if !ok || len(results) < 2 {
-		logger.WithField("result", result).Error("Formato de resultado inesperado")
-		return true, "INVALID_RESULT", fmt.Errorf("formato de resultado inesperado: %v", result)
-	}
-
-	// Extraer el resultado principal y la razón
-	allowed, ok := results[0].(int64)
-	if !ok {
-		logger.Error("No se pudo convertir el resultado a int64")
-		return true, "CONVERSION_ERROR", fmt.Errorf("error de conversión en resultado: %v", results[0])
-	}
-
-	reason, ok := results[1].(string)
-	if !ok {
-		logger.Error("No se pudo convertir la razón a string")
-		reason = "UNKNOWN"
-	}
-
-	// Extraer TTL o contador si está disponible (3er valor)
-	var extraValue int64
-	if len(results) > 2 {
-		extraValue, _ = results[2].(int64)
-	}
-
-	// Registrar información detallada
-	logFields := logrus.Fields{
-		"clientID":    clientID,
-		"ipAddress":   ipAddress,
-		"maxRequests": maxRequestsPerSecond,
-		"allowed":     allowed == 1,
-		"reason":      reason,
-	}
-
-	if extraValue > 0 {
-		if reason == "BLOCKED" || reason == "RATE_EXCEEDED_BLOCKED" || reason == "IP_RATE_EXCEEDED" {
-			logFields["blockSeconds"] = extraValue
-		} else {
-			logFields["currentCount"] = extraValue
+	if blocked == 1 {
+		// Cliente bloqueado, obtener TTL
+		_, err := rdb.TTL(ctx, blockKey).Result()
+		if err != nil {
+			logger.WithError(err).Error("Error al obtener TTL del bloqueo")
+			return false, "BLOCKED", nil
 		}
+		return false, "BLOCKED", nil
 	}
 
-	if allowed == 1 {
-		logger.WithFields(logFields).Debug("Rate limit check: permitido")
-		return true, reason, nil
-	} else {
-		logger.WithFields(logFields).Info("Rate limit check: denegado")
-		return false, reason, ErrRateLimitExceeded
+	// Verificar e incrementar contador de IP
+	ipCount, err := rdb.Incr(ctx, ipKey).Result()
+	if err != nil {
+		logger.WithError(err).Error("Error al incrementar contador de IP")
+		return true, "REDIS_ERROR", err
 	}
+
+	// Establecer expiración si es la primera incrementación
+	if ipCount == 1 {
+		rdb.Expire(ctx, ipKey, 60*time.Second)
+	}
+
+	// Umbral de IP: 10 veces el límite por segundo
+	ipLimit := int64(maxRequestsPerSecond * 10)
+	if ipCount > ipLimit {
+		// Bloquear temporalmente por exceso de IP
+		err = rdb.SetEx(ctx, blockKey, "1", 60*time.Second).Err()
+		if err != nil {
+			logger.WithError(err).Error("Error al establecer bloqueo por IP")
+		}
+		return false, "IP_RATE_EXCEEDED", nil
+	}
+
+	// Incrementar contador principal de rate limit
+	current, err := rdb.Incr(ctx, rateLimitKey).Result()
+	if err != nil {
+		logger.WithError(err).Error("Error al incrementar contador de rate limit")
+		return true, "REDIS_ERROR", err
+	}
+
+	// Establecer expiración si es la primera incrementación
+	if current == 1 {
+		rdb.Expire(ctx, rateLimitKey, 2*time.Second)
+	}
+
+	// Verificar límite
+	if current > int64(maxRequestsPerSecond) {
+		// Incrementar contador de excesos
+		exceedCount, err := rdb.Incr(ctx, exceedCountKey).Result()
+		if err != nil {
+			logger.WithError(err).Error("Error al incrementar contador de excesos")
+			return false, "RATE_EXCEEDED", nil
+		}
+
+		// Establecer expiración si es la primera incrementación
+		if exceedCount == 1 {
+			rdb.Expire(ctx, exceedCountKey, 60*time.Second)
+		}
+
+		// Si excede más de 5 veces en un minuto, bloquear
+		if exceedCount > 5 {
+			err = rdb.SetEx(ctx, blockKey, "1", 10*time.Second).Err()
+			if err != nil {
+				logger.WithError(err).Error("Error al establecer bloqueo por excesos")
+			}
+			return false, "RATE_EXCEEDED_BLOCKED", nil
+		}
+
+		return false, "RATE_EXCEEDED", nil
+	}
+
+	// Dentro del límite
+	return true, "OK", nil
 }
 
 // CheckRedisHealth verifica si Redis está disponible y funcionando correctamente

@@ -180,6 +180,8 @@ func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorize
 	defer cancel()
 
 	ipAddress := request.RequestContext.Identity.SourceIP
+
+	// Verificamos el límite de velocidad sin usar script Lua para compatibilidad con Redis Cluster
 	allowed, reason, err := redis.CheckAndIncrementRateLimitWithBlocking(
 		timeoutCtx,
 		data.ClientID,
@@ -197,25 +199,35 @@ func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorize
 	}
 
 	if err != nil {
-		// Error al verificar rate limit - registramos y permitimos por precaución
+		// Error al verificar rate limit - registramos el error
 		reqLogger.WithFields(rateLimitFields).WithError(err).Error("Error al verificar rate limit en Redis")
-	} else if !allowed {
+
+		// Al encontrar un error en Redis, podemos decidir uno de estos enfoques:
+		// 1. Permitir la petición (más permisivo, pero puede sobrecargar el sistema)
+		// 2. Denegar la petición (más seguro, pero puede bloquear peticiones legítimas)
+
+		// Opción 1: Permitir con advertencia (comentada)
+		// return generatePolicy("user", "Allow", request.MethodArn, data.PlatformData), nil
+
+		// Opción 2: Denegar con información clara (opción más segura)
+		return generatePolicy("user", "Deny", request.MethodArn, map[string]interface{}{
+			"error":          "Error interno al verificar límites de uso",
+			"rateLimitError": true,
+		}), nil
+	}
+
+	if !allowed {
 		// Rate limit excedido - denegar con información clara
 		reqLogger.WithFields(rateLimitFields).Warn("Rate limit excedido")
 
 		// Crear respuesta para API Gateway
 		// API Gateway convertirá "Deny" en un HTTP 403
-		// Incluimos información adicional para que los clientes puedan distinguir
-		// entre un 403 por rate limit (que sería un 429 en HTTP) y otros tipos de 403
-		resetTime := time.Now().Add(1 * time.Second).Unix()
-
 		return generatePolicy("user", "Deny", request.MethodArn, map[string]interface{}{
 			"rateLimitExceeded": true,
 			"reason":            reason,
-			"resetAt":           resetTime,
+			"resetAt":           time.Now().Add(1 * time.Second).Unix(),
 			"limit":             data.UsageLimits.RequestsPerSecond,
-			// Estos campos son visibles en el contexto de la respuesta
-			// y pueden ser usados por los clientes para identificar un 429
+			// Estos campos serán visibles en el contexto de la respuesta
 		}), nil
 	}
 
