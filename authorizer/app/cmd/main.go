@@ -204,8 +204,7 @@ func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorize
 		// Rate limit excedido
 		resetTime := time.Now().Add(1 * time.Second).Unix()
 		return generatePolicyWithHeaders("user", "Deny", request.MethodArn, map[string]interface{}{
-			"error":      "Rate limit exceeded",
-			"statusCode": 429, // Añadir código de estado explícito
+			"error": "Rate limit exceeded",
 		}, map[string]string{
 			"X-RateLimit-Limit":     fmt.Sprintf("%d", data.UsageLimits.RequestsPerSecond),
 			"X-RateLimit-Remaining": "0",
