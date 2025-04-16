@@ -123,7 +123,7 @@ func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorize
 	})
 
 	reqLogger.Info("Procesando solicitud de autorización")
-
+	logger.Info(request)
 	// Verificar que el API key esté presente
 	apiKey := request.Headers["x-api-key"]
 	if apiKey == "" {
