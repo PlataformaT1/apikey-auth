@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"log"
 	"os"
 	"sync"
 	"time"
@@ -49,7 +48,7 @@ func GetClient() *redis.Client {
 			if logger != nil {
 				logger.WithField("redisHost", redisHost).Warn("No se ha configurado USER_VAR_REDIS_HOST, usando valor por defecto")
 			} else {
-				log.Printf("No se ha configurado USER_VAR_REDIS_HOST, usando valor por defecto: %s", redisHost)
+				logger.Printf("No se ha configurado USER_VAR_REDIS_HOST, usando valor por defecto: %s", redisHost)
 			}
 		}
 
@@ -76,13 +75,13 @@ func GetClient() *redis.Client {
 					"error":     err,
 				}).Error("Error al conectar con Redis")
 			} else {
-				log.Printf("Failed to connect to Redis: %v", err)
+				logger.Printf("Failed to connect to Redis: %v", err)
 			}
 		} else {
 			if logger != nil {
 				logger.WithField("redisHost", redisHost).Info("Conexión a Redis establecida correctamente")
 			} else {
-				log.Printf("Successfully connected to Redis at %s", redisHost)
+				logger.Printf("Successfully connected to Redis at %s", redisHost)
 			}
 		}
 	})
@@ -111,7 +110,7 @@ func CheckAndIncrementRateLimit(ctx context.Context, sellerID string, maxRequest
 	// Run the script
 	result, err := rdb.Eval(ctx, script, []string{key}).Int64()
 	if err != nil {
-		log.Printf("Redis error: %v", err)
+		logger.Printf("Redis error: %v", err)
 		// In case of Redis error, we'll allow the request to proceed
 		return true, err
 	}
