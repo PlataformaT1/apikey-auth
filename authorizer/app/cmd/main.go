@@ -42,6 +42,9 @@ func init() {
 
 	logger.Info("Inicializando Lambda Authorizer")
 
+	// Inicializar el logger de Redis
+	redis.InitLogger(logger)
+
 	// Cargar configuración de Redis
 	redisHost := os.Getenv("USER_VAR_REDIS_HOST")
 	logger.WithField("redisHost", redisHost).Info("Configuración de Redis cargada")
@@ -111,7 +114,8 @@ func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorize
 			logger.WithField("panic", r).Error("Panic recuperado en el autorizador")
 		}
 	}()
-	/// Crear un logger con contexto de la solicitud
+
+	// Crear un logger con contexto de la solicitud
 	reqLogger := logger.WithFields(logrus.Fields{
 		"method": request.HTTPMethod,
 		"path":   request.Path,
@@ -120,6 +124,7 @@ func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorize
 
 	reqLogger.Info("Procesando solicitud de autorización")
 
+	// Verificar que el API key esté presente
 	apiKey := request.Headers["x-api-key"]
 	if apiKey == "" {
 		reqLogger.Warn("Error: API key no encontrada en headers")
@@ -170,77 +175,55 @@ func HandleRequest(ctx context.Context, request events.APIGatewayCustomAuthorize
 		}), nil
 	}
 
-	// Verificar tamaño de payload si hay header Content-Length
-	/*if contentLength, ok := request.Headers["content-length"]; ok && contentLength != "" {
-		payloadSizeBytes, err := strconv.ParseInt(contentLength, 10, 64)
-		if err == nil {
-			// Convertir MB a bytes (1 MB = 1,048,576 bytes)
-			maxPayloadSizeBytes := int64(data.UsageLimits.MaxPayloadSize) * 1024 * 1024
+	// Verificar rate limit con timeout específico para evitar bloqueos largos
+	timeoutCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
 
-			if payloadSizeBytes > maxPayloadSizeBytes {
-				reqLogger.WithFields(logrus.Fields{
-					"clientID":         data.ClientID,
-					"payloadSize":      payloadSizeBytes,
-					"maxPayloadSize":   data.UsageLimits.MaxPayloadSize,
-					"maxPayloadBytes":  maxPayloadSizeBytes,
-				}).Warn("Tamaño de payload excede el máximo permitido")
-
-				return generatePolicyWithHeaders("user", "Deny", request.MethodArn, map[string]interface{}{
-					"error": "Payload size exceeds maximum allowed size",
-				}, map[string]string{
-					"X-Max-Payload-Size": fmt.Sprintf("%d", data.UsageLimits.MaxPayloadSize),
-				}), nil
-			}
-		} else {
-			reqLogger.WithError(err).Warn("No se pudo parsear el header content-length")
-		}
-	}*/
-
-	// Verificar rate limit con el sistema mejorado
 	ipAddress := request.RequestContext.Identity.SourceIP
 	allowed, reason, err := redis.CheckAndIncrementRateLimitWithBlocking(
-		ctx,
+		timeoutCtx,
 		data.ClientID,
 		ipAddress,
 		data.UsageLimits.RequestsPerSecond,
 	)
 
-	if err != nil {
-		// En caso de error, permitimos la solicitud pero registramos el error
-		reqLogger.WithError(err).Error("Error al verificar rate limit en Redis")
-	} else if !allowed {
-		reqLogger.WithFields(logrus.Fields{
-			"clientID":          data.ClientID,
-			"ipAddress":         ipAddress,
-			"requestsPerSecond": data.UsageLimits.RequestsPerSecond,
-			"reason":            reason,
-		}).Warn("Rate limit excedido")
+	// Log detallado del resultado de la verificación del rate limit
+	rateLimitFields := logrus.Fields{
+		"clientID":          data.ClientID,
+		"ipAddress":         ipAddress,
+		"requestsPerSecond": data.UsageLimits.RequestsPerSecond,
+		"allowed":           allowed,
+		"reason":            reason,
+	}
 
-		// Rate limit excedido
+	if err != nil {
+		// Error al verificar rate limit - registramos y permitimos por precaución
+		reqLogger.WithFields(rateLimitFields).WithError(err).Error("Error al verificar rate limit en Redis")
+	} else if !allowed {
+		// Rate limit excedido - denegar con información clara
+		reqLogger.WithFields(rateLimitFields).Warn("Rate limit excedido")
+
+		// Crear respuesta para API Gateway
+		// API Gateway convertirá "Deny" en un HTTP 403
+		// Incluimos información adicional para que los clientes puedan distinguir
+		// entre un 403 por rate limit (que sería un 429 en HTTP) y otros tipos de 403
 		resetTime := time.Now().Add(1 * time.Second).Unix()
 
-		// Mensajes personalizados según el motivo
-		errorMsg := "Rate limit exceeded"
-		if reason == "BLOCKED" || reason == "RATE_EXCEEDED_BLOCKED" {
-			errorMsg = "Too many requests. You have been temporarily blocked."
-		} else if reason == "IP_RATE_EXCEEDED" {
-			errorMsg = "Too many requests from your IP address."
-		}
-
-		return generatePolicyWithHeaders("user", "Deny", request.MethodArn, map[string]interface{}{
-			"error":      errorMsg,
-			"statusCode": 429, // Too Many Requests
-			"reason":     reason,
-		}, map[string]string{
-			"X-RateLimit-Limit":     fmt.Sprintf("%d", data.UsageLimits.RequestsPerSecond),
-			"X-RateLimit-Remaining": "0",
-			"X-RateLimit-Reset":     fmt.Sprintf("%d", resetTime),
+		return generatePolicy("user", "Deny", request.MethodArn, map[string]interface{}{
+			"rateLimitExceeded": true,
+			"reason":            reason,
+			"resetAt":           resetTime,
+			"limit":             data.UsageLimits.RequestsPerSecond,
+			// Estos campos son visibles en el contexto de la respuesta
+			// y pueden ser usados por los clientes para identificar un 429
 		}), nil
 	}
 
+	// Log final antes de autorizar la solicitud
 	reqLogger.WithFields(logrus.Fields{
-		"clientID": data.ClientID,
-		"decision": "Allow",
+		"clientID":  data.ClientID,
+		"decision":  "Allow",
+		"rateCheck": rateLimitFields,
 	}).Info("Solicitud autorizada")
 
 	// Si todo está bien, autorizamos la solicitud
@@ -274,20 +257,6 @@ func generatePolicy(principalID string, effect string, resource string, context 
 	}
 
 	return authResponse
-}
-
-// generatePolicyWithHeaders crea una política con headers personalizados
-func generatePolicyWithHeaders(principalID string, effect string, resource string, context map[string]interface{}, headers map[string]string) events.APIGatewayCustomAuthorizerResponse {
-	// Crear la política base
-	policy := generatePolicy(principalID, effect, resource, context)
-
-	// Añadir headers a la respuesta
-	if policy.Context == nil {
-		policy.Context = make(map[string]interface{})
-	}
-	policy.Context["responseHeaders"] = headers
-
-	return policy
 }
 
 func main() {
